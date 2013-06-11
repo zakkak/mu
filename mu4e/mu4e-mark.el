@@ -203,7 +203,7 @@ provided, function asks for it."
     (when (or (file-directory-p fulltarget)
 	    (and (yes-or-no-p
 		   (format "%s does not exist. Create now?" fulltarget))
-	      (mu4e~proc-mkdir fulltarget)))
+	      (mu4e~server-mkdir fulltarget)))
       target)))
 
 (defun mu4e~mark-get-target (mark &optional target)
@@ -319,15 +319,15 @@ If NO-CONFIRMATION is non-nil, don't ask user for confirmation."
 		;; note: whenever you do something with the message,
 		;; it looses its N (new) flag
 		(case mark
-		  (refile  (mu4e~proc-move docid (mu4e~mark-check-target target) "-N"))
-		  (delete  (mu4e~proc-remove docid))
-		  (flag    (mu4e~proc-move docid nil    "+F-u-N"))
-		  (move    (mu4e~proc-move docid (mu4e~mark-check-target target) "-N"))
-		  (read    (mu4e~proc-move docid nil    "+S-u-N"))
-		  (trash   (mu4e~proc-move docid (mu4e~mark-check-target target) "+T-N"))
-		  (unflag  (mu4e~proc-move docid nil    "-F-N"))
-                  (untrash (mu4e~proc-move docid nil    "-T"))
-		  (unread  (mu4e~proc-move docid nil    "-S+u-N"))
+		  (refile  (mu4e~server-move docid (mu4e~mark-check-target target) "-N"))
+		  (delete  (mu4e~server-remove docid))
+		  (flag    (mu4e~server-move docid nil    "+F-u-N"))
+		  (move    (mu4e~server-move docid (mu4e~mark-check-target target) "-N"))
+		  (read    (mu4e~server-move docid nil    "+S-u-N"))
+		  (trash   (mu4e~server-move docid (mu4e~mark-check-target target) "+T-N"))
+		  (unflag  (mu4e~server-move docid nil    "-F-N"))
+                  (untrash (mu4e~server-move docid nil    "-T"))
+		  (unread  (mu4e~server-move docid nil    "-S+u-N"))
 		  (otherwise (mu4e-error "Unrecognized mark %S" mark)))))
 	    mu4e~mark-map))
 	(mu4e-mark-unmark-all)

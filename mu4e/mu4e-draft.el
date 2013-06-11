@@ -409,6 +409,6 @@ from either `mu4e~draft-reply-construct', or
 ;; 	  (lambda (file)
 ;; 	    (setq message-fcc-handler-function old-handler) ;; reset the fcc handler
 ;; 	    (write-file file)		       ;; writing maildirs files is easy
-;; 	    (mu4e~proc-add file maildir))))))) ;; update the database
+;; 	    (mu4e~server-add file maildir))))))) ;; update the database
 
 (provide 'mu4e-draft)

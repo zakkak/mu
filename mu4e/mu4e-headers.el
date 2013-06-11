@@ -241,7 +241,7 @@ In the format needed for `mu4e-read-option'.")
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; handler functions
 ;;
-;; next are a bunch of handler functions; those will be called from mu4e~proc in
+;; next are a bunch of handler functions; those will be called from mu4e~server in
 ;; response to output from the server process
 
 (defun mu4e~headers-view-handler (msg)
@@ -895,7 +895,7 @@ the query history stack."
 	global-mode-string (propertize mu4e~headers-last-query
 			     'face 'mu4e-title-face)))
     (switch-to-buffer buf)
-    (mu4e~proc-find
+    (mu4e~server-find
       expr
       mu4e-headers-show-threads
       mu4e~headers-sort-field
@@ -1275,7 +1275,7 @@ window. "
       (mu4e-error "Cannot get a message view"))
     (select-window viewwin)
     (switch-to-buffer (mu4e~headers-get-loading-buf))
-    (mu4e~proc-view docid mu4e-view-show-images decrypt)))
+    (mu4e~server-view docid mu4e-view-show-images decrypt)))
 
 (defun mu4e-headers-rerun-search ()
   "Rerun the search for the last search expression."

@@ -188,7 +188,7 @@ If needed, set the Fcc header, and register the handler function."
 	  (lambda (file)
 	    (setq message-fcc-handler-function old-handler) ;; reset the fcc handler
 	    (write-file file)		       ;; writing maildirs files is easy
-	    (mu4e~proc-add file (or maildir "/")))))))) ;; update the database
+	    (mu4e~server-add file (or maildir "/")))))))) ;; update the database
 
 (defvar mu4e-compose-hidden-headers
   `("^References:" "^Face:" "^X-Face:"
@@ -217,7 +217,7 @@ appear on disk."
       (mu4e~compose-hide-headers)
       (set-buffer-modified-p nil)
       ;; update the file on disk -- ie., without the separator
-      (mu4e~proc-add (buffer-file-name) mu4e~draft-drafts-folder)) nil t))
+      (mu4e~server-add (buffer-file-name) mu4e~draft-drafts-folder)) nil t))
 
 
 (defun mu4e~compose-find-completion-style (some-style)
@@ -294,7 +294,7 @@ appear on disk."
     (add-hook 'message-sent-hook
       (lambda () ;;  mu4e~compose-mark-after-sending
 	(setq mu4e-sent-func 'mu4e-sent-handler)
-	(mu4e~proc-sent (buffer-file-name) mu4e~draft-drafts-folder)) nil))
+	(mu4e~server-sent (buffer-file-name) mu4e~draft-drafts-folder)) nil))
   ;; mark these two hooks as permanent-local, so they'll survive mode-changes
   ;;  (put 'mu4e~compose-save-before-sending 'permanent-local-hook t)
   (put 'mu4e~compose-mark-after-sending 'permanent-local-hook t))
@@ -380,7 +380,7 @@ message. For Forwarded ('Passed') and Replied messages, try to set
 the appropriate flag at the message forwarded or replied-to."
   (mu4e~compose-set-parent-flag path)
   (when (file-exists-p path) ;; maybe the draft was not saved at all
-    (mu4e~proc-remove docid))
+    (mu4e~server-remove docid))
   ;; kill any remaining buffers for the draft file, or they will hang around...
   ;; this seems a bit hamfisted...
   (dolist (buf (buffer-list))
@@ -433,9 +433,9 @@ buffer."
 		  (setq forwarded-from (first refs))))))
 	  ;; remove the <>
 	  (when (and in-reply-to (string-match "<\\(.*\\)>" in-reply-to))
-	    (mu4e~proc-move (match-string 1 in-reply-to) nil "+R-N"))
+	    (mu4e~server-move (match-string 1 in-reply-to) nil "+R-N"))
 	  (when (and forwarded-from (string-match "<\\(.*\\)>" forwarded-from))
-	    (mu4e~proc-move (match-string 1 forwarded-from) nil "+P-N")))))))
+	    (mu4e~server-move (match-string 1 forwarded-from) nil "+P-N")))))))
 
 (defun mu4e-compose (compose-type)
   "Start composing a message of COMPOSE-TYPE, where COMPOSE-TYPE is
@@ -465,7 +465,7 @@ for draft messages."
 	  (when (window-live-p viewwin)
 	    (select-window viewwin)))
 	;; talk to the backend
-	(mu4e~proc-compose compose-type docid)))))
+	(mu4e~server-compose compose-type docid)))))
 
 (defun mu4e-compose-reply ()
   "Compose a reply for the message at point in the headers buffer."

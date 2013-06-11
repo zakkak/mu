@@ -176,7 +176,7 @@ an absolute path."
   (cond
     ((file-directory-p dir) t)
     ((yes-or-no-p (mu4e-format "%s does not exist yet. Create now?" dir))
-      (mu4e~proc-mkdir dir) t)
+      (mu4e~server-mkdir dir) t)
     (t nil)))
 
 (defun mu4e-format (frm &rest args)
@@ -342,7 +342,7 @@ and offer to create it if it does not exist yet."
     (unless (file-directory-p fullpath)
       (and (yes-or-no-p
 	     (mu4e-format "%s does not exist. Create now?" fullpath))
-	      (mu4e~proc-mkdir fullpath)))
+	      (mu4e~server-mkdir fullpath)))
     mdir))
 
 
@@ -663,7 +663,7 @@ This is used by the completion function in mu4e-compose."
 (defun mu4e-running-p ()
   "Whether mu4e is running.
 Checks whether the server process is live."
-  (mu4e~proc-running-p))
+  (mu4e~server-running-p))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; starting / getting mail / updating the index
@@ -698,7 +698,7 @@ list of contacts we use for autocompletion; otherwise, do nothing."
 Otherwise, check various requirements, then start mu4e. When
 successful, call FUNC (if non-nil) afterwards."
   ;; if we're already running, simply go to the main view
-  (if (mu4e-running-p)   ;; already running?
+  (if (mu4e~server-running-p)   ;; already running?
     (when func                 ;; yes! run func if defined
       (funcall func))
     (progn
@@ -721,7 +721,7 @@ successful, call FUNC (if non-nil) afterwards."
 	      (mu4e-message "Started mu4e with %d message%s in store"
 		doccount (if (= doccount 1) "" "s"))))))
       ;; wake up server
-      (mu4e~proc-ping)
+      (mu4e~server-ping)
       ;; maybe request the list of contacts, automatically refresh after
       ;; reindexing
       (mu4e~request-contacts)
@@ -735,7 +735,7 @@ successful, call FUNC (if non-nil) afterwards."
       mu4e~update-timer nil
       mu4e~maildir-list nil
       mu4e~contacts-for-completion nil))
-  (mu4e~proc-kill)
+  (mu4e~server-kill)
   ;; kill all main/view/headers buffer
   (mapcar
     (lambda (buf)
@@ -777,7 +777,7 @@ The messages are inserted into the process buffer."
   (interactive)
   (unless mu4e-maildir
     (mu4e-error "`mu4e-maildir' is not defined"))
-  (mu4e~proc-index mu4e-maildir mu4e-user-mail-address-list))
+  (mu4e~server-index mu4e-maildir mu4e-user-mail-address-list))
 
 ;; complicated function, as it:
 ;;   - needs to check for errors
@@ -1007,7 +1007,7 @@ displaying it). Do _not_ bury the current buffer, though."
   "Re-parse message at PATH and MAILDIR; if this works, we will
 receive (:info add :path <path> :docid <docid>) as well as (:update
 <msg-sexp>)."
-  (mu4e~proc-add path maildir))
+  (mu4e~server-add path maildir))
 
 (provide 'mu4e-utils)
 ;;; End of mu4e-utils.el

@@ -147,7 +147,7 @@ messages - for example, `mu4e-org'."
   ;; not, when the policy is 'ask'. we simply assume the user said yes...  the
   ;; alternative would be to ask for each message, encrypted or not.  maybe we
   ;; need an extra policy...
-  (mu4e~proc-view msgid mu4e-view-show-images mu4e-decryption-policy))
+  (mu4e~server-view msgid mu4e-view-show-images mu4e-decryption-policy))
 
 
 (defun mu4e-view-message-text (msg)
@@ -686,7 +686,7 @@ If the message is not New/Unread, do nothing."
       (when (and docid (or (member 'unread flags) (member 'new flags)))
 	;; mark /all/ messages with this message-id as read, so all copies of
 	;; this message will be marked as read.
-	(mu4e~proc-move msgid nil "+S-u-N")))))
+	(mu4e~server-move msgid nil "+S-u-N")))))
 
 (defun mu4e~view-fontify-cited ()
   "Colorize message content based on the citation level."
@@ -933,7 +933,7 @@ If ATTNUM is nil ask for the attachment number."
       (setq retry
 	(and (file-exists-p path)
 	  (not (y-or-n-p (mu4e-format "Overwrite '%s'?" path))))))
-    (mu4e~proc-extract
+    (mu4e~server-extract
       'save (mu4e-message-field msg :docid) index path)))
 
 (defun mu4e-view-save-attachment-multi (&optional msg)
@@ -983,13 +983,13 @@ If ATTNUM is nil ask for the attachment number."
       ;; current message when quiting that one.
       (mu4e~view-temp-action docid index "mu4e" docid)
       ;; otherwise, open with the default program (handled in mu-server
-      (mu4e~proc-extract 'open docid index))))
+      (mu4e~server-extract 'open docid index))))
 
 
 (defun mu4e~view-temp-action (docid index what &optional param)
   "Open attachment INDEX for message with DOCID, and invoke ACTION."
   (interactive)
-  (mu4e~proc-extract 'temp docid index nil what param))
+  (mu4e~server-extract 'temp docid index nil what param))
 
 (defvar mu4e~view-open-with-hist nil "History list for the open-with argument.")
 
@@ -1049,7 +1049,7 @@ The actions are specified in `mu4e-view-attachment-actions'."
 ;; want to do something with one of the attachments.
 (defun mu4e~view-temp-handler (path what docid param)
   "Handler function for doing things with temp files (ie.,
-attachments) in response to a (mu4e~proc-extract 'temp ... )."
+attachments) in response to a (mu4e~server-extract 'temp ... )."
   (cond
     ((string= what "open-with")
       ;; 'param' will be the program to open-with
@@ -1063,7 +1063,7 @@ attachments) in response to a (mu4e~proc-extract 'temp ... )."
       ;; remember the mapping path->docid, which maps the path of the embedded
       ;; message to the docid of its parent
       (puthash path docid mu4e~path-parent-docid-map)
-      (mu4e~proc-view-path path mu4e-view-show-images mu4e-decryption-policy))
+      (mu4e~server-view-path path mu4e-view-show-images mu4e-decryption-policy))
     ((string= what "emacs")
       (find-file path)
       ;; make the buffer read-only since it usually does not make

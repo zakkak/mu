@@ -28,6 +28,7 @@ dist_lisp_LISP=			\
 	mu4e-actions.el		\
 	mu4e-compose.el		\
 	mu4e-contrib.el		\
+	mu4e-dbus.el		\
 	mu4e-draft.el		\
 	mu4e-headers.el		\
 	mu4e-lists.el		\

@@ -1,6 +1,8 @@
 www/mu
 mug
-mu
+mu/mu
+mu/mu-cmd-dbus-generated*
+mu/mu-help-strings.h
 mug2
 .desktop
 *html

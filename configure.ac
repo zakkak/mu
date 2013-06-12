@@ -1,3 +1,4 @@
+# -*- compile-command:"autoreconf -i -f" -*-
 ## Copyright (C) 2008-2013 Dirk-Jan C. Binnema <djcb@djcbsoftware.nl>
 ##
 ## This program is free software; you can redistribute it and/or modify
@@ -173,6 +174,49 @@ AC_SUBST(XAPIAN_LIBS)
 AC_DEFINE(MU_STORE_SCHEMA_VERSION,["9.9"], ['Schema' version of the database])
 ###############################################################################
 
+###############################################################################
+# we need gio and gio-unix for D-Bus
+#
+
+AC_ARG_WITH([dbus],
+   [AS_HELP_STRING([--with-dbus=yes|no])],
+   [dbus=$withval],[dbus=auto])
+
+AS_IF([test "x$dbus" != "xyes" -a "x$dbuxs" != "xno" -a "x$dbus" != "xauto"],
+      AC_MSG_ERROR([the argument for --with-dbus= must be either \
+      			yes|auto|no ($dbus)]))
+
+AS_IF([test "x$dbus"!="no"],[
+   PKG_CHECK_MODULES(GIO,gio-2.0,[have_gio=yes],[have_gio=no])
+   AS_IF([test "x$have_gio" = "xyes"],[
+	    gio_version="`$PKG_CONFIG --modversion gio-2.0`"])
+   AC_SUBST(GIO_CFLAGS)
+   AC_SUBST(GIO_LIBS)
+
+   PKG_CHECK_MODULES(GIO_UNIX,gio-unix-2.0,[have_gio_unix=yes],[have_gio_unix=no])
+   AS_IF([test "x$have_gio_unix" = "xyes"],[
+	    gio_unix_version="`$PKG_CONFIG --modversion gio-unix-2.0`"])
+   AC_SUBST(GIO_UNIX_CFLAGS)
+   AC_SUBST(GIO_UNIX_LIBS)
+])
+AM_CONDITIONAL(HAVE_GIO, [test "x$have_gio" = "xyes"])
+AM_CONDITIONAL(HAVE_GIO_UNIX, [test "x$have_gio_unix" = "xyes"])
+
+# only an error if we explicitly asked for it
+AS_IF([test "x$dbus" = "xyes" -a "x$have_gio" = "xno"],[
+   AC_MSG_ERROR([GIO 2.x not found])
+])
+AS_IF([test "x$dbus" = "xyes" -a "x$have_gio_unix" = "xno"],[
+   AC_MSG_ERROR([GIO-Unix 2.x not found])
+])
+
+AS_IF([test "x$have_gio" = "xyes" -a "x$have_gio_unix" = "xyes"],[
+   builddbus=yes
+])
+
+# should we build the D-Bus support?
+AM_CONDITIONAL(BUILD_DBUS, [test "x$builddbus" != "xyes"])
+
 
 ###############################################################################
 # we need GTK+3 for some of the graphical tools
@@ -198,8 +242,6 @@ AS_IF([test "x$enable_webkit" != "xno"],[
 AM_CONDITIONAL(HAVE_WEBKIT, [test "x$have_webkit" = "xyes"])
 AM_CONDITIONAL(BUILD_GUI,[test "x$have_webkit" = "xyes" -a "x$have_gtk" = "xyes"])
 ###############################################################################
-
-
 
 ###############################################################################
 # check for guile 2.0 & guile-snarf
@@ -298,7 +340,18 @@ echo "GMime version                        : $gmime_version"
 
 AM_COND_IF([BUILD_GUI],[
 echo "GTK+ version                         : $gtk_version"
+
+if test "x$have_gio" = "xyes"; then
+echo "GIO version                          : $gio_version"
+fi
+
+if test "x$have_gio_unix" = "xyes"; then
+echo "GIO-Unix version                     : $gio_unix_version"
+fi
+
+if test "x$build_webkit" = "xyes"; then
 echo "Webkit version                       : $webkit_version"
+fi
 ])
 
 AM_COND_IF([BUILD_GUILE],[
@@ -318,8 +371,7 @@ AM_COND_IF([BUILD_GUI],[
 echo "Build 'mug' toy-ui (gtk+/webkit)     : yes"],[
 echo "Build 'mug' toy-ui (gtk+/webkit)     : no"
 ])
-
-
+echo "Build D-Bus support (gio-unix)       : $builddbus"
 echo "McCabe's Cyclomatic Complexity tool  : $have_pmccabe"
 echo
 

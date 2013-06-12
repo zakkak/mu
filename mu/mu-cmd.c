@@ -628,6 +628,8 @@ mu_cmd_execute (MuConfig *opts, GError **err)
 		merr = with_store (mu_cmd_remove, opts, FALSE, err);   break;
 	case MU_CONFIG_CMD_SERVER:
 		merr = with_store (mu_cmd_server, opts, FALSE, err);   break;
+	case MU_CONFIG_CMD_DBUS:
+		merr = with_store (mu_cmd_dbus, opts, FALSE, err);   break;
 	default:
 		merr = MU_ERROR_IN_PARAMETERS; break;
 	}

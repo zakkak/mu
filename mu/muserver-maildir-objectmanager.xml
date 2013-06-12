@@ -1,0 +1,8 @@
+<node>
+  <interface name="org.example.mail.mu.Maildir.ObjectManager.MaildirManager">
+    <method name="Execute">
+      <arg direction="in" type="s" name="payload"/>
+      <arg direction="out" type="s" name="response"/>
+    </method>
+  </interface>
+</node>

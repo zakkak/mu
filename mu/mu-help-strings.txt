@@ -54,6 +54,16 @@ beginning of 2012, you could use
          --after=`date +%%s -d 2012-01-01`
 #END
 
+#BEGIN MU_CONFIG_CMD_DBUS
+#STRING
+mu dbus [options]
+#STRING
+mu dbus starts a D-Bus listener that responds to method calls to
+query and manipulate the mu database.  The output of the commands
+is D-Bus response messages.  mu dbus is designed for external
+mail readers.
+#END
+
 #BEGIN MU_CONFIG_CMD_EXTRACT
 #STRING
 mu extract [options] <file>
@@ -90,6 +100,7 @@ mu find is the mu command to get help about <command>, where <command>
 is one of:
   add     - add message to database
   cfind   - find a contact
+  dbus    - start mu dbus server
   extract - extract parts/attachments from messages
   find    - query the message database
   help    - get help

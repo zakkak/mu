@@ -1,0 +1,6 @@
+gdbus-codegen --interface-prefix org.example.mail.mu.Maildir.ObjectManager. \
+              --generate-c-code mu-cmd-dbus-generated                        \
+              --c-namespace MuServer                       \
+              --c-generate-object-manager                 \
+              --generate-docbook mu-cmd-dbus-generated \
+              muserver-maildir-objectmanager.xml

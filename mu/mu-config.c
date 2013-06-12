@@ -456,6 +456,7 @@ cmd_from_string (const char *str)
 	} cmd_map[] = {
 		{ "add",     MU_CONFIG_CMD_ADD     },
 		{ "cfind",   MU_CONFIG_CMD_CFIND   },
+		{ "dbus",    MU_CONFIG_CMD_DBUS    },
 		{ "extract", MU_CONFIG_CMD_EXTRACT },
 		{ "find",    MU_CONFIG_CMD_FIND    },
 		{ "help",    MU_CONFIG_CMD_HELP    },

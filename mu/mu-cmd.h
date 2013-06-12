@@ -184,6 +184,16 @@ MuError mu_cmd_verify (MuConfig *opts, GError **err);
  */
 MuError mu_cmd_execute (MuConfig *opts, GError **err);
 
+/**
+ * execute the dbus command
+ * @param store store object to use
+ * @param opts configuration options
+ *
+ * @return MU_OK (0) if the command succeeds,
+ * some error code otherwise
+ */
+MuError mu_cmd_dbus (MuStore *store, MuConfig *opts, GError**/*unused*/);
+
 G_END_DECLS
 
 #endif /*__MU_CMD_H__*/

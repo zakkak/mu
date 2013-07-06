@@ -59,6 +59,27 @@ on \"$HOME/.mu\"."
                                     (or mu4e-mu-home
                                         (expand-file-name ".mu" "~/")))))
 
+(defvar mu4e~dbus-needs-event-bug-fix
+  (or (< emacs-major-version 24)
+      (and (= emacs-major-version 24)
+           (< emacs-minor-version 4)))
+  "Work around special-event-map bug in Emacs < 24.4.
+
+In Emacs before v24.4, the set of active keymaps is determined at
+the end of the previous command.  Any change to the keymap done
+outside the normal command loop (like a special-event-map
+binding) leaves Emacs looking at the old keymap.  Both major mode
+changes and selected-buffer changes trigger this.
+
+As a workaround, we can add a dummy event to the
+`unread-command-event' queue, bound to `ignore'.  That forces
+Emacs to recalculate the active keymap.
+
+Emacs 24.4 has a fix for this bug.")
+
+(when mu4e~dbus-needs-event-bug-fix
+  (define-key global-map [mu4e~dbus-fake-event] 'ignore))
+
 (defun mu4e~dbus-handler (response)
   "A handler for the 'mu dbus' output.
 It parses the responses as a series of sexps and passes them for evaluation."
@@ -73,7 +94,10 @@ It parses the responses as a series of sexps and passes them for evaluation."
           (setq sexp (ignore-errors (read (current-buffer)))))))
     (dolist (sexp (nreverse all-sexps))
       (mu4e~server-dispatch-on-sexp sexp))
-    (make-frame-visible (selected-frame))))
+    (make-frame-visible (selected-frame)))
+  (when (and mu4e~dbus-needs-event-bug-fix
+             (not (eq (car unread-command-events) 'mu4e~dbus-fake-event)))
+    (push 'mu4e~dbus-fake-event unread-command-events)))
 
 (defun mu4e~dbus-send-command (frm &rest args)
   "Send as command to the mu server process."

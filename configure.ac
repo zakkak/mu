@@ -182,11 +182,11 @@ AC_ARG_WITH([dbus],
    [AS_HELP_STRING([--with-dbus=yes|no])],
    [dbus=$withval],[dbus=auto])
 
-AS_IF([test "x$dbus" != "xyes" -a "x$dbuxs" != "xno" -a "x$dbus" != "xauto"],
+AS_IF([test "x$dbus" != "xyes" -a "x$dbus" != "xno" -a "x$dbus" != "xauto"],
       AC_MSG_ERROR([the argument for --with-dbus= must be either \
       			yes|auto|no ($dbus)]))
 
-AS_IF([test "x$dbus"!="no"],[
+AS_IF([test "x$dbus" != "no"],[
    PKG_CHECK_MODULES(GIO,gio-2.0,[have_gio=yes],[have_gio=no])
    AS_IF([test "x$have_gio" = "xyes"],[
 	    gio_version="`$PKG_CONFIG --modversion gio-2.0`"])
@@ -212,10 +212,12 @@ AS_IF([test "x$dbus" = "xyes" -a "x$have_gio_unix" = "xno"],[
 
 AS_IF([test "x$have_gio" = "xyes" -a "x$have_gio_unix" = "xyes"],[
    builddbus=yes
+   AC_DEFINE_UNQUOTED([BUILD_DBUS],1,[Whether we build with dbus support])
+   AC_CHECK_PROG([GDBUS_CODEGEN],[gdbus-codegen],[gdbus-codegen])
 ])
 
 # should we build the D-Bus support?
-AM_CONDITIONAL(BUILD_DBUS, [test "x$builddbus" != "xyes"])
+AM_CONDITIONAL(BUILD_DBUS, [test "x$dbus" != "xno"])
 
 
 ###############################################################################
@@ -352,6 +354,11 @@ fi
 if test "x$build_webkit" = "xyes"; then
 echo "Webkit version                       : $webkit_version"
 fi
+])
+
+AM_COND_IF([BUILD_DBUS],[
+echo "Build with D-Bus support             : yes"],[
+echo "Build with D-Bus support             : no"
 ])
 
 AM_COND_IF([BUILD_GUILE],[

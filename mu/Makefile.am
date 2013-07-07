@@ -26,9 +26,21 @@ AM_CPPFLAGS=-I${top_srcdir}/lib $(GLIB_CFLAGS) $(GIO_CFLAGS) $(GIO_UNIX_CFLAGS)
 # use -Wno-unused-parameters, because some callbacks may not
 # really need all the params they get
 AM_CFLAGS=-Wall -Wextra -Wno-unused-parameter -Wdeclaration-after-statement \
-	-pedantic -Wno-variadic-macros \
+	-pedantic -Wno-variadic-macros -Wno-extra-semi                      \
         -DMU_SCRIPTS_DIR="\"$(pkgdatadir)/scripts/\""
 AM_CXXFLAGS=-Wall -Wextra -Wno-unused-parameter
+
+if BUILD_DBUS
+dbus_sources=mu-cmd-dbus.c
+dbus_built_sources=		\
+	mu-server-dbus-glue.c	\
+	mu-server-dbus-glue.h	\
+	mu-server-dbus.xml.h
+else
+dbus_built_sources=
+dbus_sources=
+endif
+
 
 bin_PROGRAMS=				\
 	mu
@@ -44,14 +56,28 @@ mu_SOURCES=				\
 	mu-cmd-find.c			\
 	mu-cmd-index.c			\
 	mu-cmd-server.c			\
-	mu-cmd-dbus.c			\
+	mu-cmd-server.h			\
+	$(dbus_sources)			\
 	mu-cmd-script.c			\
 	mu-cmd.c			\
 	mu-cmd.h			\
-	mu-cmd-dbus-generated.c
+	$(BUILT_SOURCES)
 
 BUILT_SOURCES=				\
-	mu-help-strings.h
+	mu-help-strings.h		\
+	$(dbus_built_sources)
+
+mu-cmd-dbus.c: $(dbus_built_sources)
+
+mu-server-dbus-glue.c: mu-server-dbus-glue.h
+mu-server-dbus-glue.h: mu-server-dbus.xml
+	$(AM_V_GEN) ${GDBUS_CODEGEN} --generate-c-code          \
+        ${builddir}/mu-server-dbus-glue --c-namespace=Mu	\
+         --interface-prefix=nl.djcbsoftware.Mu			\
+	 --c-generate-object-manager				\
+         ${srcdir}/mu-server-dbus.xml
+mu-server-dbus.xml.h: mu-server-dbus.xml
+	$(AM_V_GEN) ${AWK} '{gsub(/"/,"\\\"",$$0); print "\"" $$0 "\"";}' < $< > $@
 
 mu-help-strings.h: mu-help-strings.txt mu-help-strings.awk
 	$(AWK) -f ${top_srcdir}/mu/mu-help-strings.awk < $< > $@
@@ -64,6 +90,7 @@ mu_LDADD=				\
 
 EXTRA_DIST=				\
 	mu-help-strings.awk		\
-	mu-help-strings.txt
+	mu-help-strings.txt		\
+	mu-server-dbus.xml
 
 CLEANFILES=$(BUILT_SOURCES)

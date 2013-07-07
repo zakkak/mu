@@ -24,7 +24,7 @@
 #include "mu-cmd-server.h"
 #include "mu-str.h"
 
-#include "mu-cmd-dbus-generated.h"
+#include "mu-server-dbus-glue.h"
 
 /* ---------------------------------------------------------------------------------------------------- */
 
@@ -73,10 +73,10 @@ marshall_dbus_and_clear_g_error (GError **err)
 }
 
 static gboolean
-on_maildirmanager_execute (MuServerMaildirManager *md_mgr,
-			   GDBusMethodInvocation  *invocation,
-			   gchar                  *payload,
-			   gpointer                user_data)
+on_maildirmanager_execute (MuServer			*md_mgr,
+			   GDBusMethodInvocation	*invocation,
+			   gchar			*payload,
+			   gpointer			 user_data)
 {
 	GHashTable *args;
 	GError *my_err = NULL;
@@ -122,7 +122,7 @@ on_maildirmanager_execute (MuServerMaildirManager *md_mgr,
 	g_hash_table_destroy (args);
 
 	char_data = g_string_free (dbus_buffer, FALSE);
-	mu_server_maildir_manager_complete_execute (md_mgr, invocation, char_data);
+	mu_server_complete_execute (md_mgr, invocation, char_data);
 	g_free(char_data);
 
 	/* we have handled this request */
@@ -130,8 +130,7 @@ on_maildirmanager_execute (MuServerMaildirManager *md_mgr,
 }
 
 static void
-setup_maildir_manager_signal_callbacks(MuServerMaildirManager *md_mgr,
-				       gpointer user_data)
+setup_maildir_manager_signal_callbacks(MuServer *md_mgr, gpointer user_data)
 {
 	g_signal_connect (md_mgr, "handle-execute",
 			  G_CALLBACK (on_maildirmanager_execute),
@@ -143,16 +142,16 @@ on_bus_acquired (GDBusConnection *connection,
                  const gchar *name,
                  gpointer user_data)
 {
-	MuServerObjectSkeleton *object;
-	MuServerMaildirManager *md_mgr;
-	gchar *s;
+	MuObjectSkeleton	*object;
+	MuServer		*md_mgr;
+	gchar			*s;
 
 	s = g_strdup ("/mu/maildir");
-	object = mu_server_object_skeleton_new (s);
+	object = mu_object_skeleton_new (s);
 	g_free (s);
 
-	md_mgr = mu_server_maildir_manager_skeleton_new ();
-	mu_server_object_skeleton_set_maildir_manager (object, md_mgr);
+	md_mgr = mu_server_skeleton_new ();
+	mu_object_skeleton_set_server (object, md_mgr);
 	setup_maildir_manager_signal_callbacks(md_mgr, user_data);
 	g_object_unref (md_mgr);
 
@@ -191,18 +190,21 @@ strip_chars(gchar *str, char c)
 static gchar *
 construct_object_name (const gchar *home)
 {
+
+	const char *base;
+
+	base = "nl.djcbsoftware.Mu.Maildir";
+
 	if (home) {
 		gchar *to_strip, *rv;
 		to_strip = g_strdup (home);
 		strip_chars (to_strip, '/');
-		rv = g_strconcat ("org.example.mail.mu.Maildir",
-				  ".", to_strip, NULL);
+		rv = g_strconcat (base, ".", to_strip, NULL);
 		g_free (to_strip);
 		return rv;
 	}
-	else {
-		return g_strdup ("org.example.mail.mu.Maildir");
-	}
+	else
+		return g_strdup (base);
 }
 
 MuError
@@ -212,9 +214,9 @@ mu_cmd_dbus (MuStore *store, MuConfig *opts, GError **err)
 	gchar *object_name;
 	guint id;
 
-	send_expr = marshall_dbus_expr;
-	send_expr_oob = marshall_dbus_expr;
-	send_error = marshall_dbus_error;
+	send_expr	       = marshall_dbus_expr;
+	send_expr_oob	       = marshall_dbus_expr;
+	send_error	       = marshall_dbus_error;
 	send_and_clear_g_error = marshall_dbus_and_clear_g_error;
 
 	g_return_val_if_fail (store, MU_ERROR_INTERNAL);

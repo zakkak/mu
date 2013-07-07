@@ -44,18 +44,22 @@
 #include "mu-runtime.h"
 #include "mu-str.h"
 #include "mu-cmd.h"
+#include "mu-cmd-server.h"
 #include "mu-maildir.h"
-#include "mu-query.h"
 #include "mu-index.h"
 #include "mu-msg-part.h"
 #include "mu-contacts.h"
+
+#ifdef BUILD_DBUS
+#include "mu-server-dbus-glue.h"
+#endif /*BUILD_DBUS*/
 
 /* signal handling *****************************************************/
 /*
  * when we receive SIGINT, SIGHUP, SIGTERM, set MU_CAUGHT_SIGNAL to
  * TRUE
  * */
-static gboolean MU_TERMINATE;
+gboolean MU_TERMINATE;
 
 static void
 sig_handler (int sig)
@@ -63,7 +67,7 @@ sig_handler (int sig)
         MU_TERMINATE = TRUE;
 }
 
-static void
+void
 install_sig_handler (void)
 {
         struct sigaction action;
@@ -82,6 +86,11 @@ install_sig_handler (void)
 }
 /************************************************************************/
 
+
+void G_GNUC_PRINTF(1, 2) (*send_expr) (const char *frm, ...);
+void G_GNUC_PRINTF(1, 2) (*send_expr_oob) (const char *frm, ...);
+MuError (*send_error) (MuError errcode, const char *msg);
+MuError (*send_and_clear_g_error) (GError **err);
 
 /*
  * Markers for/after the lenght cookie that precedes the expression we
@@ -200,7 +209,6 @@ read_command_line (GError **err)
 
 	return hash;
 }
-
 
 static const char*
 get_string_from_args (GHashTable *args, const char *param, gboolean optional,
@@ -352,19 +360,13 @@ determine_docid (MuQuery *query, GHashTable *args, GError **err)
 #define EQSTR(S1,S2) (g_strcmp0((S1),(S2))==0)
 
 
-struct _ServerContext {
-	MuStore *store;
-	MuQuery *query;
-};
-typedef struct _ServerContext ServerContext;
-
 /*************************************************************************/
 /* implementation for the commands -- for each command <x>, there is a
  * dedicated function cmd_<x>. These function all are of the type CmdFunc
  *
  * these functions return errors only if they don't handle them
  * themselves, where 'handling' is defined as 'report it using
- * print_and_clear_g_error'
+ * send_and_clear_g_error'
  *
  * if function return non-MU_OK, the repl will print the error instead
  */
@@ -390,17 +392,17 @@ cmd_add (ServerContext *ctx, GHashTable *args, GError **err)
 
 	docid = mu_store_add_path (ctx->store, path, maildir, err);
 	if (docid == MU_STORE_INVALID_DOCID)
-		print_and_clear_g_error (err);
+		send_and_clear_g_error (err);
 	else {
 		gchar *escpath;
 		escpath = mu_str_escape_c_literal (path, TRUE);
-		print_expr ("(:info add :path %s :docid %u)", escpath, docid);
+		send_expr ("(:info add :path %s :docid %u)", escpath, docid);
 
 		msg = mu_store_get_msg (ctx->store, docid, err);
 		if (msg) {
 			sexp = mu_msg_to_sexp (msg, docid, NULL,
 					       MU_MSG_OPTION_VERIFY);
-			print_expr ("(:update %s :move nil)", sexp);
+			send_expr ("(:update %s :move nil)", sexp);
 
 			mu_msg_unref(msg);
 			g_free (sexp);
@@ -427,7 +429,7 @@ each_part (MuMsg *msg, MuMsgPart *part, GSList **attlist)
 	cachefile = mu_msg_part_save_temp (msg, MU_MSG_OPTION_OVERWRITE,
 					   part->index, &err);
 	if (!cachefile) {
-		print_and_clear_g_error (&err);
+		send_and_clear_g_error (&err);
 		return;
 	}
 
@@ -507,7 +509,7 @@ cmd_compose (ServerContext *ctx, GHashTable *args, GError **err)
 
 	ctype = compose_type (typestr);
 	if (ctype == INVALID_TYPE) {
-		print_error (MU_ERROR_IN_PARAMETERS, "invalid type to compose");
+		send_error (MU_ERROR_IN_PARAMETERS, "invalid type to compose");
 		return MU_OK;
 	}
 
@@ -517,7 +519,7 @@ cmd_compose (ServerContext *ctx, GHashTable *args, GError **err)
 		GET_STRING_OR_ERROR_RETURN (args, "docid", &docidstr, err);
 		msg = mu_store_get_msg (ctx->store, atoi(docidstr), err);
 		if (!msg) {
-			print_and_clear_g_error (err);
+			send_and_clear_g_error (err);
 			return MU_OK;
 		}
 		sexp = mu_msg_to_sexp (msg, atoi(docidstr), NULL,
@@ -527,8 +529,8 @@ cmd_compose (ServerContext *ctx, GHashTable *args, GError **err)
 	} else
 		atts = sexp = NULL;
 
-	print_expr ("(:compose %s :original %s :include %s)",
-		    typestr, sexp ? sexp : "nil", atts ? atts : "nil");
+	send_expr ("(:compose %s :original %s :include %s)",
+		   typestr, sexp ? sexp : "nil", atts ? atts : "nil");
 
 	g_free (sexp);
 	g_free (atts);
@@ -628,14 +630,14 @@ cmd_contacts (ServerContext *ctx, GHashTable *args, GError **err)
 	contacts = mu_contacts_new
 		(mu_runtime_path (MU_RUNTIME_PATH_CONTACTS));
 	if (!contacts) {
-		print_error (MU_ERROR_INTERNAL,
-			     "failed to open contacts cache");
+		send_error (MU_ERROR_INTERNAL,
+			    "failed to open contacts cache");
 		return MU_OK;
 	}
 
 	/* dump the contacts cache as a giant sexp */
 	sexp = contacts_to_sexp (contacts, personal, after);
-	print_expr ("%s\n", sexp);
+	send_expr ("%s\n", sexp);
 	g_free (sexp);
 
 	mu_contacts_destroy (contacts);
@@ -645,7 +647,7 @@ cmd_contacts (ServerContext *ctx, GHashTable *args, GError **err)
 
 
 static unsigned
-print_sexps (MuMsgIter *iter, unsigned maxnum)
+send_sexps (MuMsgIter *iter, unsigned maxnum)
 {
 	unsigned u;
 	u = 0;
@@ -661,7 +663,7 @@ print_sexps (MuMsgIter *iter, unsigned maxnum)
 			ti   = mu_msg_iter_get_thread_info (iter);
 			sexp = mu_msg_to_sexp (msg, mu_msg_iter_get_docid (iter),
 					       ti, MU_MSG_OPTION_HEADERS_ONLY);
-			print_expr ("%s", sexp);
+			send_expr ("%s", sexp);
 			g_free (sexp);
 			++u;
 		}
@@ -684,13 +686,13 @@ save_part (MuMsg *msg, unsigned docid,
 	rv = mu_msg_part_save (msg, MU_MSG_OPTION_OVERWRITE,
 			       path, index, err);
 	if (!rv) {
-		print_and_clear_g_error (err);
+		send_and_clear_g_error (err);
 		return MU_OK;
 	}
 
 	escpath = mu_str_escape_c_literal (path, FALSE);
-	print_expr ("(:info save :message \"%s has been saved\")",
-		    escpath);
+	send_expr ("(:info save :message \"%s has been saved\")",
+		   escpath);
 
 	g_free (escpath);
 	return MU_OK;
@@ -706,24 +708,24 @@ open_part (MuMsg *msg, unsigned docid, unsigned index, GError **err)
 	targetpath = mu_msg_part_get_cache_path (msg,MU_MSG_OPTION_NONE,
 						 index, err);
 	if (!targetpath)
-		return print_and_clear_g_error (err);
+		return send_and_clear_g_error (err);
 
 	rv = mu_msg_part_save (msg, MU_MSG_OPTION_USE_EXISTING,
 			       targetpath, index, err);
 	if (!rv) {
-		print_and_clear_g_error (err);
+		send_and_clear_g_error (err);
 		goto leave;
 	}
 
 	rv = mu_util_play (targetpath, TRUE,/*allow local*/
 			   FALSE/*allow remote*/, err);
 	if (!rv)
-		print_and_clear_g_error (err);
+		send_and_clear_g_error (err);
 	else {
 		gchar *path;
 		path = mu_str_escape_c_literal (targetpath, FALSE);
-		print_expr ("(:info open :message \"%s has been opened\")",
-			    path);
+		send_expr ("(:info open :message \"%s has been opened\")",
+			   path);
 		g_free (path);
 	}
 leave:
@@ -745,10 +747,10 @@ temp_part (MuMsg *msg, unsigned docid, unsigned index, GHashTable *args,
 	path = mu_msg_part_get_cache_path (msg, MU_MSG_OPTION_NONE,
 					   index, err);
 	if (!path)
-		print_and_clear_g_error (err);
+		send_and_clear_g_error (err);
 	else if (!mu_msg_part_save (msg, MU_MSG_OPTION_USE_EXISTING,
 				    path, index, err))
-		print_and_clear_g_error (err);
+		send_and_clear_g_error (err);
 	else {
 		gchar *escpath;
 		escpath = mu_str_escape_c_literal (path, FALSE);
@@ -756,15 +758,15 @@ temp_part (MuMsg *msg, unsigned docid, unsigned index, GHashTable *args,
 		if (param) {
 			char *escparam;
 			escparam = mu_str_escape_c_literal (param, FALSE);
-			print_expr ("(:temp \"%s\""
-				    " :what \"%s\""
-				    " :docid %u"
-				    " :param \"%s\""")",
-				    escpath, what, docid, escparam);
+			send_expr ("(:temp \"%s\""
+				   " :what \"%s\""
+				   " :docid %u"
+				   " :param \"%s\""")",
+				   escpath, what, docid, escparam);
 			g_free (escparam);
 		} else
-			print_expr ("(:temp \"%s\" :what \"%s\" :docid %u)",
-				    escpath, what, docid);
+			send_expr ("(:temp \"%s\" :what \"%s\" :docid %u)",
+				   escpath, what, docid);
 
 		g_free (escpath);
 
@@ -806,17 +808,17 @@ cmd_extract (ServerContext *ctx, GHashTable *args, GError **err)
 	index = atoi (indexstr);
 	docid = determine_docid (ctx->query, args, err);
 	if (docid == MU_STORE_INVALID_DOCID) {
-		print_and_clear_g_error (err);
+		send_and_clear_g_error (err);
 		return MU_OK;
 	}
 
 	if ((action = action_type (actionstr)) == INVALID_ACTION) {
-		print_error (MU_ERROR_IN_PARAMETERS, "invalid action");
+		send_error (MU_ERROR_IN_PARAMETERS, "invalid action");
 		return MU_OK;
 	}
 	msg = mu_store_get_msg (ctx->store, docid, err);
 	if (!msg) {
-		print_error (MU_ERROR, "failed to get message");
+		send_error (MU_ERROR, "failed to get message");
 		return MU_OK;
 	}
 
@@ -824,11 +826,11 @@ cmd_extract (ServerContext *ctx, GHashTable *args, GError **err)
 	case SAVE: rv = save_part (msg, docid, index, args, err); break;
 	case OPEN: rv = open_part (msg, docid, index, err); break;
 	case TEMP: rv = temp_part (msg, docid, index, args, err); break;
-	default: print_error (MU_ERROR_INTERNAL, "unknown action");
+	default: send_error (MU_ERROR_INTERNAL, "unknown action");
 	}
 
 	if (rv != MU_OK)
-		print_and_clear_g_error (err);
+		send_and_clear_g_error (err);
 
 	mu_msg_unref (msg);
 	return MU_OK;
@@ -902,7 +904,7 @@ cmd_find (ServerContext *ctx, GHashTable *args, GError **err)
 	GET_STRING_OR_ERROR_RETURN (args, "query", &querystr, err);
 	if (get_find_params (args, &sortfield, &maxnum, &qflags, err)
 	    != MU_OK) {
-		print_and_clear_g_error (err);
+		send_and_clear_g_error (err);
 		return MU_OK;
 	}
 
@@ -913,7 +915,7 @@ cmd_find (ServerContext *ctx, GHashTable *args, GError **err)
 	iter = mu_query_run (ctx->query, querystr, sortfield,
 			     maxnum, qflags, err);
 	if (!iter) {
-		print_and_clear_g_error (err);
+		send_and_clear_g_error (err);
 		return MU_OK;
 	}
 
@@ -921,9 +923,9 @@ cmd_find (ServerContext *ctx, GHashTable *args, GError **err)
 	 * frontend knows it should erase the headers buffer. this
 	 * will ensure that the output of two finds will not be
 	 * mixed. */
-	print_expr ("(:erase t)");
-	foundnum = print_sexps (iter, maxnum);
-	print_expr ("(:found %u)", foundnum);
+	send_expr ("(:erase t)");
+	foundnum = send_sexps (iter, maxnum);
+	send_expr ("(:found %u)", foundnum);
 	mu_msg_iter_destroy (iter);
 
 	return MU_OK;
@@ -950,8 +952,8 @@ cmd_guile (ServerContext *ctx, GHashTable *args, GError **err)
 	file   = get_string_from_args (args, "file", TRUE, NULL);
 
 	if (!script == !file) {
-		print_error (MU_ERROR_IN_PARAMETERS,
-			     "guile: must provide one of 'script', 'file'");
+		send_error (MU_ERROR_IN_PARAMETERS,
+			    "guile: must provide one of 'script', 'file'");
 		return MU_OK;
 	}
 
@@ -961,8 +963,8 @@ cmd_guile (ServerContext *ctx, GHashTable *args, GError **err)
 static MuError
 cmd_guile (ServerContext *ctx, GHashTable *args, GError **err)
 {
-	print_error (MU_ERROR_INTERNAL,
-		     "this mu does not have guile support");
+	send_error (MU_ERROR_INTERNAL,
+		    "this mu does not have guile support");
 	return MU_OK;
 }
 #endif /*BUILD_GUILE*/
@@ -979,8 +981,8 @@ index_msg_cb (MuIndexStats *stats, void *user_data)
 	if (stats->_processed % 1000)
 		return MU_OK;
 
-	print_expr ("(:info index :status running "
-		    ":processed %u :updated %u)",
+	send_expr ("(:info index :status running "
+		   ":processed %u :updated %u)",
 		   stats->_processed, stats->_updated);
 
 	return MU_OK;
@@ -1010,8 +1012,8 @@ get_checked_path (const char *path)
 	cpath = mu_util_dir_expand(path);
 	if (!cpath ||
 	    !mu_util_check_dir (cpath, TRUE, FALSE)) {
-		print_error (MU_ERROR_IN_PARAMETERS,
-			     "not a readable dir: '%s'");
+		send_error (MU_ERROR_IN_PARAMETERS,
+			    "not a readable dir: '%s'");
 		g_free (cpath);
 		return NULL;
 	}
@@ -1044,9 +1046,9 @@ index_and_cleanup (MuIndex *index, const char *path, GError **err)
 		return rv;
 	}
 
-	print_expr ("(:info index :status complete "
-		    ":processed %u :updated %u :cleaned-up %u)",
-		    stats._processed, stats._updated, stats2._cleaned_up);
+	send_expr ("(:info index :status complete "
+		   ":processed %u :updated %u :cleaned-up %u)",
+		   stats._processed, stats._updated, stats2._cleaned_up);
 
 	return rv;
 }
@@ -1080,7 +1082,7 @@ leave:
 	g_free (path);
 
 	if (err && *err)
-		print_and_clear_g_error (err);
+		send_and_clear_g_error (err);
 
 	mu_index_destroy (index);
 
@@ -1099,10 +1101,10 @@ cmd_mkdir (ServerContext *ctx, GHashTable *args, GError **err)
 	GET_STRING_OR_ERROR_RETURN (args, "path", &path, err);
 
 	if (!mu_maildir_mkdir (path, 0755, FALSE, err))
-		print_and_clear_g_error (err);
+		send_and_clear_g_error (err);
 	else
-		print_expr ("(:info mkdir :message \"%s has been created\")",
-			    path);
+		send_expr ("(:info mkdir :message \"%s has been created\")",
+			   path);
 
 	return MU_OK;
 }
@@ -1154,14 +1156,14 @@ do_move (MuStore *store, unsigned docid, MuMsg *msg, const char *maildir,
 	if (rv == MU_STORE_INVALID_DOCID) {
 		mu_util_g_set_error (err, MU_ERROR_XAPIAN,
 				     "failed to store updated message");
-		print_and_clear_g_error (err);
+		send_and_clear_g_error (err);
 	}
 
 	sexp = mu_msg_to_sexp (msg, docid, NULL, MU_MSG_OPTION_VERIFY);
 	/* note, the :move t thing is a hint to the frontend that it
 	 * could remove the particular header */
-	print_expr ("(:update %s :move %s)", sexp,
-		    different_mdir ? "t" : "nil");
+	send_expr ("(:update %s :move %s)", sexp,
+		   different_mdir ? "t" : "nil");
 	g_free (sexp);
 
 	return MU_OK;
@@ -1196,7 +1198,7 @@ leave:
 	if (msg)
 		mu_msg_unref (msg);
 	if (rv != MU_OK)
-		print_and_clear_g_error (err);
+		send_and_clear_g_error (err);
 
 	return rv;
 }
@@ -1224,7 +1226,7 @@ move_msgid_maybe (ServerContext *ctx, GHashTable *args, GError **err)
 		return FALSE;
 
 	if (!(docids = get_docids_from_msgids (ctx->query, msgid, err))) {
-		print_and_clear_g_error (err);
+		send_and_clear_g_error (err);
 		return TRUE;
 	}
 
@@ -1270,7 +1272,7 @@ cmd_move (ServerContext *ctx, GHashTable *args, GError **err)
 	docid = determine_docid (ctx->query, args, err);
 	if (docid == MU_STORE_INVALID_DOCID ||
 	    !(msg = mu_store_get_msg (ctx->store, docid, err))) {
-		print_and_clear_g_error (err);
+		send_and_clear_g_error (err);
 		return MU_OK;
 	}
 
@@ -1287,13 +1289,13 @@ cmd_move (ServerContext *ctx, GHashTable *args, GError **err)
 		flags = mu_msg_get_flags (msg);
 
 	if (flags == MU_FLAG_INVALID) {
-		print_error (MU_ERROR_IN_PARAMETERS, "invalid flags");
+		send_error (MU_ERROR_IN_PARAMETERS, "invalid flags");
 		goto leave;
 	}
 
 	if ((do_move (ctx->store, docid, msg, maildir, flags, new_name, err)
 	     != MU_OK))
-		print_and_clear_g_error (err);
+		send_and_clear_g_error (err);
 
 leave:
 	mu_msg_unref (msg);
@@ -1312,16 +1314,16 @@ cmd_ping (ServerContext *ctx, GHashTable *args, GError **err)
 	doccount = mu_store_count (ctx->store, err);
 
 	if (doccount == (unsigned)-1)
-		return print_and_clear_g_error (err);
+		return send_and_clear_g_error (err);
 
-	print_expr ("(:pong \"" PACKAGE_NAME "\" "
-		    " :props (:crypto %s :guile %s "
-		    "  :version \"" VERSION "\" "
-		    "  :doccount %u))",
-		    mu_util_supports (MU_FEATURE_CRYPTO) ? "t" : "nil",
-		    mu_util_supports (MU_FEATURE_GUILE|MU_FEATURE_GNUPLOT)
-		    ? "t" : "nil",
-		    doccount);
+	send_expr ("(:pong \"" PACKAGE_NAME "\" "
+		   " :props (:crypto %s :guile %s "
+		   "  :version \"" VERSION "\" "
+		   "  :doccount %u))",
+		   mu_util_supports (MU_FEATURE_CRYPTO) ? "t" : "nil",
+		   mu_util_supports (MU_FEATURE_GUILE|MU_FEATURE_GNUPLOT)
+		   ? "t" : "nil",
+		   doccount);
 
 	return MU_OK;
 }
@@ -1331,7 +1333,7 @@ cmd_ping (ServerContext *ctx, GHashTable *args, GError **err)
 static MuError
 cmd_quit (ServerContext *ctx, GHashTable *args , GError **err)
 {
-	print_expr (";; quiting");
+	send_expr (";; quiting");
 
 	return MU_STOP;
 }
@@ -1380,30 +1382,30 @@ cmd_remove (ServerContext *ctx, GHashTable *args, GError **err)
 
 	docid = determine_docid (ctx->query, args, err);
 	if (docid == MU_STORE_INVALID_DOCID) {
-		print_and_clear_g_error (err);
+		send_and_clear_g_error (err);
 		return MU_OK;
 	}
 
 	path = get_path_from_docid (ctx->store, docid, err);
 	if (!path) {
-		print_and_clear_g_error (err);
+		send_and_clear_g_error (err);
 		return MU_OK;
 	}
 
 	if (unlink (path) != 0) {
 		mu_util_g_set_error (err, MU_ERROR_FILE_CANNOT_UNLINK,
 				     "%s", strerror (errno));
-		print_and_clear_g_error (err);
+		send_and_clear_g_error (err);
 		return MU_OK;
 	}
 
 	if (!mu_store_remove_path (ctx->store, path)) {
-		print_error (MU_ERROR_XAPIAN_REMOVE_FAILED,
-			     "failed to remove from database");
+		send_error (MU_ERROR_XAPIAN_REMOVE_FAILED,
+			    "failed to remove from database");
 		return MU_OK;
 	}
 
-	print_expr ("(:remove %u)", docid);
+	send_expr ("(:remove %u)", docid);
 	return MU_OK;
 }
 
@@ -1424,12 +1426,12 @@ cmd_sent (ServerContext *ctx, GHashTable *args, GError **err)
 
 	docid = mu_store_add_path (ctx->store, path, maildir, err);
 	if (docid == MU_STORE_INVALID_DOCID)
-		print_and_clear_g_error (err);
+		send_and_clear_g_error (err);
 	else {
 		gchar *escpath;
 		escpath = mu_str_escape_c_literal (path, TRUE);
-		print_expr ("(:sent t :path %s :docid %u)",
-			    escpath, docid);
+		send_expr ("(:sent t :path %s :docid %u)",
+			   escpath, docid);
 		g_free (escpath);
 	}
 
@@ -1478,21 +1480,21 @@ cmd_view (ServerContext *ctx, GHashTable *args, GError **err)
 	} else {
 		docid = determine_docid (ctx->query, args, err);
 		if (docid == MU_STORE_INVALID_DOCID) {
-			print_and_clear_g_error (err);
+			send_and_clear_g_error (err);
 			return MU_OK;
 		}
 		msg = mu_store_get_msg (ctx->store, docid, err);
 	}
 
 	if (!msg) {
-		print_and_clear_g_error (err);
+		send_and_clear_g_error (err);
 		return MU_OK;
 	}
 
 	sexp = mu_msg_to_sexp (msg, docid, NULL, opts);
 	mu_msg_unref (msg);
 
-	print_expr ("(:view %s)\n", sexp);
+	send_expr ("(:view %s)\n", sexp);
 	g_free (sexp);
 
 	return MU_OK;
@@ -1504,7 +1506,7 @@ cmd_view (ServerContext *ctx, GHashTable *args, GError **err)
 
 /*************************************************************************/
 
-static MuError
+MuError
 handle_args (ServerContext *ctx, GHashTable *args, GError **err)
 {
 	unsigned u;
@@ -1554,6 +1556,11 @@ mu_cmd_server (MuStore *store, MuConfig *opts/*unused*/, GError **err)
 	ServerContext ctx;
 	gboolean do_quit;
 
+	send_expr = print_expr;
+	send_expr_oob = print_expr;
+	send_error = print_error;
+	send_and_clear_g_error = print_and_clear_g_error;
+
 	g_return_val_if_fail (store, MU_ERROR_INTERNAL);
 
 	ctx.store = store;
@@ -1591,7 +1598,7 @@ mu_cmd_server (MuStore *store, MuConfig *opts/*unused*/, GError **err)
 			do_quit = TRUE;
 			break;
 		default: /* some error occurred */
-			print_and_clear_g_error (&my_err);
+			send_and_clear_g_error (&my_err);
 		}
 
 		g_hash_table_destroy (args);

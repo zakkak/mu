@@ -1,0 +1,8 @@
+<node>
+  <interface name="nl.djcbsoftware.Mu.Server">
+    <method name="Execute">
+      <arg direction="in" type="s" name="Payload"/>
+      <arg direction="out" type="s" name="Response"/>
+    </method>
+  </interface>
+</node>

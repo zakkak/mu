@@ -529,7 +529,7 @@ show_usage (void)
 {
 	g_print ("usage: mu command [options] [parameters]\n");
 	g_print ("where command is one of index, find, cfind, view, mkdir, "
-		   "extract, add, remove, script, verify or server\n");
+		   "extract, add, remove, script, verify, dbus or server\n");
 	g_print ("see the mu, mu-<command> or mu-easy manpages for "
 		   "more information\n");
 }
@@ -628,8 +628,10 @@ mu_cmd_execute (MuConfig *opts, GError **err)
 		merr = with_store (mu_cmd_remove, opts, FALSE, err);   break;
 	case MU_CONFIG_CMD_SERVER:
 		merr = with_store (mu_cmd_server, opts, FALSE, err);   break;
+#ifdef BUILD_DBUS
 	case MU_CONFIG_CMD_DBUS:
 		merr = with_store (mu_cmd_dbus, opts, FALSE, err);   break;
+#endif /*BUILD_DBUS*/
 	default:
 		merr = MU_ERROR_IN_PARAMETERS; break;
 	}

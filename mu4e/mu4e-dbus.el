@@ -33,14 +33,14 @@
 (defconst mu4e~dbus-message-bus :session
   "D-bus for communication with the mu server, normally `:session'.")
 
-(defconst mu4e~dbus-server-base "org.example.mail.mu.Maildir"
+(defconst mu4e~dbus-server-base "nl.djcbsoftware.Mu.Maildir"
   "Mu server's root D-bus name for communication.")
 
 (defconst mu4e~dbus-object-path "/mu/maildir"
   "Mu server's D-bus object path.")
 
 (defconst mu4e~dbus-interface
-  "org.example.mail.mu.Maildir.ObjectManager.MaildirManager"
+  "nl.djcbsoftware.Mu.Server"
   "Mu server's D-bus interface name")
 
 (defconst mu4e~dbus-method "Execute"

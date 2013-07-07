@@ -82,3 +82,6 @@ configure.lineno
 /guile/tests/test-mu-guile
 /lib/doxyfile
 /version.texi
+/mu/mu-server-dbus-glue.c
+/mu/mu-server-dbus-glue.h
+/mu/mu-server-dbus.xml.h

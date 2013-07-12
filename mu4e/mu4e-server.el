@@ -181,7 +181,7 @@ The server output is as follows:
   "Remove message identified by docid.
 The results are reporter through either (:update ... ) or (:error)
 sexp, which are handled my `mu4e-error-func', respectively."
-  (funcall mu4e~server-send-command "remove docid:%d" docid))
+  (funcall mu4e~server-send-command "cmd:remove docid:%d" docid))
 
 (defun mu4e~server-escape (str)
   "Escape STRING for transport -- put it in quotes, and escape existing quotation.

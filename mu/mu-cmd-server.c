@@ -46,7 +46,6 @@
 #include "mu-cmd.h"
 #include "mu-cmd-server.h"
 #include "mu-maildir.h"
-#include "mu-index.h"
 #include "mu-msg-part.h"
 #include "mu-contacts.h"
 
@@ -91,6 +90,8 @@ void G_GNUC_PRINTF(1, 2) (*send_expr) (const char *frm, ...);
 void G_GNUC_PRINTF(1, 2) (*send_expr_oob) (const char *frm, ...);
 MuError (*send_error) (MuError errcode, const char *msg);
 MuError (*send_and_clear_g_error) (GError **err);
+
+MuError (*index_msg_cb) (MuIndexStats *stats, void *user_data);
 
 /*
  * Markers for/after the lenght cookie that precedes the expression we
@@ -972,23 +973,6 @@ cmd_guile (ServerContext *ctx, GHashTable *args, GError **err)
 
 
 
-static MuError
-index_msg_cb (MuIndexStats *stats, void *user_data)
-{
-	if (MU_TERMINATE)
-		return MU_STOP;
-
-	if (stats->_processed % 1000)
-		return MU_OK;
-
-	send_expr ("(:info index :status running "
-		   ":processed %u :updated %u)",
-		   stats->_processed, stats->_updated);
-
-	return MU_OK;
-}
-
-
 static void
 set_my_addresses (MuStore *store, const char *addrstr)
 {
@@ -1046,9 +1030,11 @@ index_and_cleanup (MuIndex *index, const char *path, GError **err)
 		return rv;
 	}
 
-	send_expr ("(:info index :status complete "
-		   ":processed %u :updated %u :cleaned-up %u)",
-		   stats._processed, stats._updated, stats2._cleaned_up);
+	send_expr_oob ("(:info index :status complete "
+		       ":processed %u :updated %u :cleaned-up %u)",
+		       stats._processed, stats._updated, stats2._cleaned_up);
+
+	send_expr ("(:info empty-response)");
 
 	return rv;
 }
@@ -1506,6 +1492,23 @@ cmd_view (ServerContext *ctx, GHashTable *args, GError **err)
 
 /*************************************************************************/
 
+static MuError
+cmd_server_index_msg_cb (MuIndexStats *stats, void *user_data)
+{
+	if (MU_TERMINATE)
+		return MU_STOP;
+
+	if (stats->_processed % 1000)
+		return MU_OK;
+
+	send_expr_oob ("(:info index :status running "
+		       ":processed %u :updated %u)",
+		       stats->_processed, stats->_updated);
+
+	return MU_OK;
+}
+
+
 MuError
 handle_args (ServerContext *ctx, GHashTable *args, GError **err)
 {
@@ -1556,10 +1559,11 @@ mu_cmd_server (MuStore *store, MuConfig *opts/*unused*/, GError **err)
 	ServerContext ctx;
 	gboolean do_quit;
 
-	send_expr = print_expr;
-	send_expr_oob = print_expr;
-	send_error = print_error;
+	send_expr	       = print_expr;
+	send_expr_oob	       = print_expr;
+	send_error	       = print_error;
 	send_and_clear_g_error = print_and_clear_g_error;
+	index_msg_cb	       = cmd_server_index_msg_cb;
 
 	g_return_val_if_fail (store, MU_ERROR_INTERNAL);
 

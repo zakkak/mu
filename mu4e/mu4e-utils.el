@@ -37,14 +37,14 @@
 (require 'doc-view)
  
 ;; keep the byte-compiler happy
-(declare-function mu4e~proc-mkdir     "mu4e-proc")
-(declare-function mu4e~proc-ping      "mu4e-proc")
-(declare-function mu4e~proc-contacts  "mu4e-proc")
-(declare-function mu4e~proc-kill      "mu4e-proc")
-(declare-function mu4e~proc-index     "mu4e-proc")
-(declare-function mu4e~proc-add       "mu4e-proc")
-(declare-function mu4e~proc-mkdir     "mu4e-proc")
-(declare-function mu4e~proc-running-p "mu4e-proc")
+(declare-function mu4e~server-mkdir     "mu4e-server")
+(declare-function mu4e~server-ping      "mu4e-server")
+(declare-function mu4e~server-contacts  "mu4e-server")
+(declare-function mu4e~server-kill      "mu4e-server")
+(declare-function mu4e~server-index     "mu4e-server")
+(declare-function mu4e~server-add       "mu4e-server")
+(declare-function mu4e~server-mkdir     "mu4e-server")
+(declare-function mu4e~server-running-p "mu4e-server")
 
 (declare-function show-all "org")
 
@@ -686,7 +686,7 @@ Checks whether the server process is live."
 list of contacts we use for autocompletion; otherwise, do nothing."
   (when mu4e-compose-complete-addresses
     (setq mu4e-contacts-func 'mu4e~fill-contacts)
-    (mu4e~proc-contacts
+    (mu4e~server-contacts
       mu4e-compose-complete-only-personal
       (when mu4e-compose-complete-only-after
 	(float-time
@@ -721,11 +721,12 @@ successful, call FUNC (if non-nil) afterwards."
 	      (mu4e-message "Started mu4e with %d message%s in store"
 		doccount (if (= doccount 1) "" "s"))))))
       ;; wake up server
-      (mu4e~server-ping)
-      ;; maybe request the list of contacts, automatically refresh after
-      ;; reindexing
-      (mu4e~request-contacts)
-      (add-hook 'mu4e-index-updated-hook 'mu4e~request-contacts))))
+      (mu4e~server-ping)))
+  ;; maybe request the list of contacts, automatically refresh after
+  ;; reindexing
+  (unless mu4e~contact-list
+    (mu4e~request-contacts))
+  (add-hook 'mu4e-index-updated-hook 'mu4e~request-contacts))
 
 (defun mu4e~stop ()
   "Stop the mu4e session."

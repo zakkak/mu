@@ -18,6 +18,7 @@
 **
 */
 
+#include "mu-index.h"
 #include "mu-query.h"
 #include "mu-store.h"
 
@@ -31,6 +32,7 @@ G_BEGIN_DECLS
 struct _ServerContext {
   MuStore *store;
   MuQuery *query;
+  gchar   *home_dir;
 };
 typedef struct _ServerContext ServerContext;
 
@@ -44,6 +46,7 @@ extern MuError (*send_and_clear_g_error) (GError **err);
 
 extern MuError handle_args (ServerContext *ctx, GHashTable *args, GError **err);
 
+extern MuError (*index_msg_cb) (MuIndexStats *stats, void *user_data);
 
 G_END_DECLS
 

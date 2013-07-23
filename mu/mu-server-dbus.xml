@@ -4,5 +4,8 @@
       <arg direction="in" type="s" name="Payload"/>
       <arg direction="out" type="s" name="Response"/>
     </method>
+    <signal name="OOBMessage">
+      <arg direction="in" type="s" name="Payload"/>
+    </signal>
   </interface>
 </node>

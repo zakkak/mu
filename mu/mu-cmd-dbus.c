@@ -18,7 +18,11 @@
 **
 */
 
+#include <ctype.h>
 #include <string.h>
+#include <unistd.h>
+
+#include <glib-unix.h>
 
 #include "mu-cmd.h"
 #include "mu-cmd-server.h"
@@ -31,18 +35,72 @@
 extern gboolean mu_must_terminate ();
 extern void install_sig_handler (void);
 
+static MuServer		*md_mgr;
 static GDBusObjectManagerServer *dbus_object_manager;
 static GMainLoop *dbus_loop;
 static GString *dbus_buffer = NULL;
 
+/**
+ * Strip all characters from STR that would make it an invalid object.
+ * This function updates the array in place.  The caller is
+ * responsible for sending a modifiable array.
+ */
+static void
+strip_nonobject_chars(gchar *str)
+{
+	size_t i, j, len;
+	len = strlen (str);
+	for (i=j=0; j<len; ++j) {
+		if (str[j] != '/') {
+			str[i++] = str[j];
+		}
+	}
+	str[i] = '\0';
+}
+
+/**
+ * Strip all characters from STR that would make it an invalid path.
+ * This function updates the array in place.  The caller is
+ * responsible for sending a modifiable array.
+ */
+static void
+strip_nonpath_chars(gchar *str)
+{
+	size_t i, j, len;
+	len = strlen (str);
+	for (i=j=0; j<len; ++j) {
+		if (isalnum(str[j]) || str[j] == '_' || str[j] == '/') {
+			str[i++] = str[j];
+		}
+	}
+	str[i] = '\0';
+}
+
+
 static void G_GNUC_PRINTF(1, 2)
-	marshall_dbus_expr (const char *frm, ...)
+marshall_dbus_expr (const char *frm, ...)
 {
 	va_list ap;
 
 	va_start (ap, frm);
 	g_string_append_vprintf (dbus_buffer, frm, ap);
 	va_end (ap);
+}
+
+static void G_GNUC_PRINTF(1, 2)
+marshall_dbus_expr_oob (const char *frm, ...)
+{
+	va_list ap;
+	GString *dbus_notification_buffer;
+	gchar *char_data;
+
+	dbus_notification_buffer = g_string_sized_new (512);
+	va_start (ap, frm);
+	g_string_append_vprintf (dbus_notification_buffer, frm, ap);
+	va_end (ap);
+	char_data = g_string_free (dbus_notification_buffer, FALSE);
+	mu_server_emit_oobmessage (md_mgr, char_data);
+	g_free(char_data);
 }
 
 static MuError
@@ -83,12 +141,6 @@ on_maildirmanager_execute (MuServer			*md_mgr,
 	ServerContext *ctx_ptr;
 	gchar *char_data;
 
-	if (MU_TERMINATE) {
-		g_main_loop_quit (dbus_loop);
-		/* we have not handled this request */
-		return FALSE;
-	}
-
 	ctx_ptr = (ServerContext*) user_data;
 
 	dbus_buffer = g_string_sized_new (512);
@@ -112,14 +164,20 @@ on_maildirmanager_execute (MuServer			*md_mgr,
 	case MU_OK:
 		break;
 	case MU_STOP:
-		g_main_loop_quit (dbus_loop);
 		MU_TERMINATE = TRUE;
 		break;
 	default: /* some error occurred */
 		send_and_clear_g_error (&my_err);
+		break;
 	}
 
 	g_hash_table_destroy (args);
+
+	if (MU_TERMINATE) {
+		g_main_loop_quit (dbus_loop);
+		/* we have not handled this request */
+		return FALSE;
+	}
 
 	char_data = g_string_free (dbus_buffer, FALSE);
 	mu_server_complete_execute (md_mgr, invocation, char_data);
@@ -143,17 +201,19 @@ on_bus_acquired (GDBusConnection *connection,
                  gpointer user_data)
 {
 	MuObjectSkeleton	*object;
-	MuServer		*md_mgr;
 	gchar			*s;
+	ServerContext           *ctx;
 
-	s = g_strdup ("/mu/maildir");
+	ctx = (ServerContext*) user_data;
+
+	s = g_strconcat ("/mu/maildir", ctx->home_dir, NULL);
+	strip_nonpath_chars (s);
 	object = mu_object_skeleton_new (s);
 	g_free (s);
 
 	md_mgr = mu_server_skeleton_new ();
 	mu_object_skeleton_set_server (object, md_mgr);
 	setup_maildir_manager_signal_callbacks(md_mgr, user_data);
-	g_object_unref (md_mgr);
 
 	dbus_object_manager = g_dbus_object_manager_server_new ("/mu");
 	g_dbus_object_manager_server_export (dbus_object_manager,
@@ -164,22 +224,11 @@ on_bus_acquired (GDBusConnection *connection,
 						     connection);
 }
 
-/**
- * Strip all characters matching C from a string.  This function
- * updates the array in place.  The caller is responsible for sending
- * a modifiable array.
- */
 static void
-strip_chars(gchar *str, char c)
+on_terminating_signal(gpointer *dummy)
 {
-	size_t i, j, len;
-	len = strlen (str);
-	for (i=j=0; j<len; ++j) {
-		if (str[j] != '/') {
-			str[i++] = str[j];
-		}
-	}
-	str[i] = '\0';
+    MU_TERMINATE = TRUE;
+    g_main_loop_quit (dbus_loop);
 }
 
 /**
@@ -198,7 +247,7 @@ construct_object_name (const gchar *home)
 	if (home) {
 		gchar *to_strip, *rv;
 		to_strip = g_strdup (home);
-		strip_chars (to_strip, '/');
+		strip_nonobject_chars (to_strip);
 		rv = g_strconcat (base, ".", to_strip, NULL);
 		g_free (to_strip);
 		return rv;
@@ -207,28 +256,72 @@ construct_object_name (const gchar *home)
 		return g_strdup (base);
 }
 
+/**
+ * Display index update information during the indexing loop, and
+ * possibly break out of the indexing loop.
+ *
+ * We force a check for new glib events so we can detect signals to
+ * kill the process.  We assume that the event check is a drop in the
+ * bucket compared to file I/O operations we're already doing; that
+ * means we don't lose much by doing the check for every callback.
+ */
+static MuError
+cmd_dbus_index_msg_cb (MuIndexStats *stats, void *user_data)
+{
+	g_main_context_iteration(g_main_loop_get_context(dbus_loop), FALSE);
+
+	if (MU_TERMINATE)
+		return MU_STOP;
+
+	if (stats->_processed % 1000)
+		return MU_OK;
+
+	send_expr_oob ("(:info index :status running "
+		       ":processed %u :updated %u)",
+		       stats->_processed, stats->_updated);
+
+	return MU_OK;
+}
+
 MuError
 mu_cmd_dbus (MuStore *store, MuConfig *opts, GError **err)
 {
 	ServerContext ctx;
 	gchar *object_name;
 	guint id;
+	GSource *source;
 
 	send_expr	       = marshall_dbus_expr;
-	send_expr_oob	       = marshall_dbus_expr;
+	send_expr_oob	       = marshall_dbus_expr_oob;
 	send_error	       = marshall_dbus_error;
 	send_and_clear_g_error = marshall_dbus_and_clear_g_error;
+	index_msg_cb           = cmd_dbus_index_msg_cb;
 
 	g_return_val_if_fail (store, MU_ERROR_INTERNAL);
 
 	ctx.store = store;
 	ctx.query = mu_query_new (store, err);
+	ctx.home_dir = g_strdup(opts->muhome);
+
 	if (!ctx.query)
 		return MU_G_ERROR_CODE (err);
 
-	install_sig_handler ();
-
 	dbus_loop = g_main_loop_new (NULL, FALSE);
+
+	source = g_unix_signal_source_new (SIGHUP);
+	g_source_set_callback (source, (GSourceFunc) on_terminating_signal, NULL, NULL);
+	g_source_attach (source, g_main_loop_get_context(dbus_loop));
+	g_source_unref (source);
+
+	source = g_unix_signal_source_new (SIGINT);
+	g_source_set_callback (source, (GSourceFunc) on_terminating_signal, NULL, NULL);
+	g_source_attach (source, g_main_loop_get_context(dbus_loop));
+	g_source_unref (source);
+
+	source = g_unix_signal_source_new (SIGTERM);
+	g_source_set_callback (source, (GSourceFunc) on_terminating_signal, NULL, NULL);
+	g_source_attach (source, g_main_loop_get_context(dbus_loop));
+	g_source_unref (source);
 
 	object_name = construct_object_name (opts->muhome);
 
@@ -250,6 +343,7 @@ mu_cmd_dbus (MuStore *store, MuConfig *opts, GError **err)
 
 	mu_store_flush   (ctx.store);
 	mu_query_destroy (ctx.query);
+	g_free (ctx.home_dir);
 
 	return MU_OK;
 }

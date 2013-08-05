@@ -30,9 +30,7 @@
 
 #include "mu-server-dbus-glue.h"
 
-/* ---------------------------------------------------------------------------------------------------- */
-
-extern gboolean mu_must_terminate ();
+extern gboolean mu_must_terminate (void);
 extern void install_sig_handler (void);
 
 static MuServer		*md_mgr;
@@ -136,10 +134,10 @@ on_maildirmanager_execute (MuServer			*md_mgr,
 			   gchar			*payload,
 			   gpointer			 user_data)
 {
-	GHashTable *args;
-	GError *my_err = NULL;
-	ServerContext *ctx_ptr;
-	gchar *char_data;
+	GHashTable	*args;
+	GError		*err;
+	ServerContext	*ctx_ptr;
+	gchar		*char_data;
 
 	ctx_ptr = (ServerContext*) user_data;
 
@@ -148,35 +146,27 @@ on_maildirmanager_execute (MuServer			*md_mgr,
 	/* args will receive a the command as a hashtable.
 	 * returning NULL indicates an error, but
 	 * we let handle_args() detect that. */
-	args   = mu_str_parse_arglist (payload, &my_err);
-	if ((!args || g_hash_table_size(args) == 0) && !my_err) {
-		if (args)
-			g_hash_table_destroy (args);
-		/* we have not handled this request */
-		return FALSE;
-	} else if (my_err) {
-		/* we have not handled this request */
-		send_and_clear_g_error (&my_err);
-		return FALSE;
-	}
+	err  = NULL;
+	args = mu_str_parse_arglist (payload, &err);
 
-	switch (handle_args (ctx_ptr, args, &my_err)) {
+	if ((!args || g_hash_table_size (args) == 0 || err))
+		goto errexit;
+
+	switch (handle_args (ctx_ptr, args, &err)) {
 	case MU_OK:
 		break;
 	case MU_STOP:
 		MU_TERMINATE = TRUE;
 		break;
 	default: /* some error occurred */
-		send_and_clear_g_error (&my_err);
-		break;
+		goto errexit;
 	}
 
 	g_hash_table_destroy (args);
 
 	if (MU_TERMINATE) {
 		g_main_loop_quit (dbus_loop);
-		/* we have not handled this request */
-		return FALSE;
+		goto errexit;
 	}
 
 	char_data = g_string_free (dbus_buffer, FALSE);
@@ -185,6 +175,21 @@ on_maildirmanager_execute (MuServer			*md_mgr,
 
 	/* we have handled this request */
 	return TRUE;
+
+errexit:
+	/* we have not handled this request */
+	if (err)
+		send_and_clear_g_error (&err);
+
+	if (args)
+		g_hash_table_destroy (args);
+
+	if (dbus_buffer)
+		g_string_free (dbus_buffer, TRUE);
+
+	return FALSE;
+
+
 }
 
 static void
@@ -286,10 +291,12 @@ cmd_dbus_index_msg_cb (MuIndexStats *stats, void *user_data)
 MuError
 mu_cmd_dbus (MuStore *store, MuConfig *opts, GError **err)
 {
-	ServerContext ctx;
-	gchar *object_name;
-	guint id;
-	GSource *source;
+	unsigned	 u;
+	ServerContext	 ctx;
+	gchar		*object_name;
+	guint		 id;
+
+	int sigs[] = { SIGHUP, SIGINT, SIGTERM };
 
 	send_expr	       = marshall_dbus_expr;
 	send_expr_oob	       = marshall_dbus_expr_oob;
@@ -308,20 +315,16 @@ mu_cmd_dbus (MuStore *store, MuConfig *opts, GError **err)
 
 	dbus_loop = g_main_loop_new (NULL, FALSE);
 
-	source = g_unix_signal_source_new (SIGHUP);
-	g_source_set_callback (source, (GSourceFunc) on_terminating_signal, NULL, NULL);
-	g_source_attach (source, g_main_loop_get_context(dbus_loop));
-	g_source_unref (source);
+	for (u = 0; u != G_N_ELEMENTS(sigs); ++u) {
+		GSource	*source;
 
-	source = g_unix_signal_source_new (SIGINT);
-	g_source_set_callback (source, (GSourceFunc) on_terminating_signal, NULL, NULL);
-	g_source_attach (source, g_main_loop_get_context(dbus_loop));
-	g_source_unref (source);
-
-	source = g_unix_signal_source_new (SIGTERM);
-	g_source_set_callback (source, (GSourceFunc) on_terminating_signal, NULL, NULL);
-	g_source_attach (source, g_main_loop_get_context(dbus_loop));
-	g_source_unref (source);
+		source = g_unix_signal_source_new (sigs[u]);
+		g_source_set_callback (source,
+				       (GSourceFunc)on_terminating_signal,
+				       NULL, NULL);
+		g_source_attach (source, g_main_loop_get_context(dbus_loop));
+		g_source_unref (source);
+	}
 
 	object_name = construct_object_name (opts->muhome);
 
@@ -339,7 +342,6 @@ mu_cmd_dbus (MuStore *store, MuConfig *opts, GError **err)
 	g_bus_unown_name (id);
 	g_main_loop_unref (dbus_loop);
 	g_free (object_name);
-
 
 	mu_store_flush   (ctx.store);
 	mu_query_destroy (ctx.query);
